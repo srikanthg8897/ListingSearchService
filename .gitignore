@@ -1,0 +1,13 @@
+bin/
+obj/
+node_modules/
+dist/
+coverage/
+TestResults/
+*.user
+*.suo
+*.log
+.env.local
+.env.*.local
+/requirements/Coding_Test_Question_Paper_DotNet.pdf
+/requirements/Instructions.pdf
