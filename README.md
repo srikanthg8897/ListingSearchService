@@ -1,69 +1,20 @@
 # Listing Search Service
 
-A small full-stack property-listing search application built for the .NET coding assessment. The ASP.NET Core API reads the supplied JSON into memory, applies the documented filters, ranks matches, and returns paginated results to a React and TypeScript interface.
+A small, full-stack property search app. A React page sends search filters to an ASP.NET Core API. The API reads the supplied JSON listings, filters them, ranks the matches, and returns one page of results.
 
-## Requirements implemented
+## Run it locally
 
-- Minimum/maximum price, minimum bedrooms, city, and description-keyword filters.
-- Budget- and recency-based relevance ranking with a stable, deterministic tie order.
-- Validated query parameters, structured HTTP 400 responses, empty-result handling, and bounded pagination.
-- A React interface connected to the live API, including loading, error, empty, and pagination states.
-- xUnit unit and HTTP integration tests for search behavior and edge cases.
+You need the **.NET 9 SDK** and **Node.js 18 or newer with npm**. Start the API and UI in two separate PowerShell terminals, from the repository root.
 
-Source listings retain their original fields and source identities. Listings are not deduplicated, and status is not used as an undocumented search filter.
-
-## Technology stack
-
-- .NET 9 / ASP.NET Core Web API
-- C# and `System.Text.Json`
-- xUnit and ASP.NET Core's integration-test host
-- React 18, TypeScript, and Vite
-- Fetch API and in-memory listing storage
-
-## Prerequisites
-
-- .NET 9 SDK
-- Node.js 18 or later and npm
-
-The backend targets `net9.0`, matching the installed SDK used to develop this project. Vite requires a modern Node.js release; the legacy Node 6 executable previously present on the development machine is not sufficient.
-
-## Project structure
-
-```text
-backend/
-  ListingSearch.sln
-  ListingSearch.Api/
-    Controllers/
-    DTOs/
-    Models/
-    Repositories/
-    Services/
-    Validation/
-  ListingSearch.Tests/
-frontend/
-  src/
-    components/
-    services/
-    types/
-requirements/
-  sample_listings.json
-```
-
-The assessment PDFs remain local and are excluded from Git. The supplied JSON is linked into the API and test outputs and is not modified.
-
-## Run the backend
-
-From the repository root:
+**Terminal 1 — start the API:**
 
 ```powershell
 dotnet run --project backend\ListingSearch.Api -- --urls http://localhost:5000
 ```
 
-The API loads and validates `requirements\sample_listings.json` at startup. A missing or malformed data file fails startup with a descriptive error rather than silently returning partial data.
+Wait for the message `Now listening on: http://localhost:5000`.
 
-## Run the frontend
-
-In a second terminal, configure the API base URL and start Vite:
+**Terminal 2 — configure and start the UI:**
 
 ```powershell
 Copy-Item frontend\.env.example frontend\.env.local
@@ -72,32 +23,46 @@ npm install
 npm run dev
 ```
 
-Open `http://localhost:8080`. Vite binds to port `8080` by default, and the API allows the local UI origins `http://localhost:8080` and `http://localhost:5173`. `.env.local` is ignored by Git.
+Open **http://localhost:8080**. Keep both terminals running while using the app.
 
-## API
+The `.env.local` file configures the UI to call `http://localhost:5000`. It is ignored by Git. The API permits the local UI origins `http://localhost:8080` and `http://localhost:5173`. Vite is configured to use port 8080; if that port is already occupied, stop the other process using it and restart Vite.
 
-### `GET /api/listings/search`
+The API loads `requirements\sample_listings.json` at startup. If the file is missing or invalid, startup fails with an error instead of silently returning incomplete results. The supplied data contains 12 listings; it is tracked in Git and must not be modified to make tests pass. The assessment PDFs are kept local and ignored by Git.
 
-| Parameter | Meaning | Default / validation |
+## What happens when you search
+
+1. Enter any combination of price, bedroom, city, description-keyword, and target-budget filters. The page size defaults to 10.
+2. Select **Search**. The browser sends a `GET /api/listings/search` request to the API. Changing filters starts again from page 1.
+3. The API validates the inputs, filters the full dataset, scores and sorts all matching listings, then selects the requested page.
+4. The UI displays each result's address, price, bedroom count, and relevance score, along with the result totals and page controls.
+5. Use **Reset** to clear filters. If no listings match, the UI displays an empty-results message.
+
+The order matters: pagination happens **after** filtering and ranking. The UI cancels obsolete requests so a late response from an earlier search cannot replace the current results.
+
+## Search rules
+
+| Query parameter | Purpose | Default and validation |
 |---|---|---|
-| `minPrice` | Inclusive minimum list price in USD | Optional; must be non-negative |
-| `maxPrice` | Inclusive maximum list price in USD | Optional; must be non-negative and at least `minPrice` |
-| `minBedrooms` | Inclusive minimum bedroom count | Optional; must be non-negative |
-| `city` | Exact city match, ignoring case and surrounding whitespace | Optional |
-| `keyword` | Case-insensitive substring matched against `description` | Optional; surrounding query whitespace is ignored |
-| `targetBudget` | Budget used for relevance ranking | Optional; must be greater than zero when supplied |
+| `minPrice` | Minimum list price, inclusive | Optional; must not be negative |
+| `maxPrice` | Maximum list price, inclusive | Optional; must not be negative or below `minPrice` |
+| `minBedrooms` | Minimum bedroom count, inclusive | Optional; must not be negative |
+| `city` | Exact city match | Optional; ignores letter case and surrounding whitespace |
+| `keyword` | Substring search in the listing description | Optional; ignores letter case and surrounding query whitespace |
+| `targetBudget` | Budget input to relevance ranking | Optional; must be greater than zero when provided |
 | `page` | One-based page number | Defaults to `1`; must be at least `1` |
-| `pageSize` | Number of results on a page | Defaults to `10`; must be in `1..100` |
+| `pageSize` | Results per page | Defaults to `10`; must be from `1` to `100` |
 
-Filtering is applied before scoring and ordering; pagination is applied last. An out-of-range page returns HTTP 200 with an empty `items` array and the actual total counts. Invalid values and malformed numeric query parameters return HTTP 400. A valid search with no matches returns HTTP 200 with zero results and zero pages.
+Matching does not otherwise normalize source data. Addresses and city names are not rewritten. Listings are not deduplicated, even when separate feeds appear to describe the same property. Listing status is preserved but is not a search filter.
 
-Example:
+## API example
+
+Request one result page of Springfield listings ranked against a $500,000 target budget:
 
 ```text
-GET http://localhost:5000/api/listings/search?city=Springfield&targetBudget=500000&page=1&pageSize=1
+GET http://localhost:5000/api/listings/search?city=Springfield&targetBudget=500000&page=1&pageSize=2
 ```
 
-The response wraps each unchanged listing in a `listing` property alongside its score:
+The response contains the original listing plus its calculated score, and pagination metadata:
 
 ```json
 {
@@ -130,71 +95,93 @@ The response wraps each unchanged listing in a `listing` property alongside its 
 }
 ```
 
-The example demonstrates the response shape; relevance scores depend on the current UTC date.
+This example's score is for the sample listing when the UTC date is 2026-10-12. The score changes as the listing ages. The `items` collection contains up to `pageSize` results.
 
-## Relevance scoring and trade-offs
+### Errors and empty results
 
-The score is bounded from 0 to 100 and uses only the agreed budget and date inputs:
+- Invalid values, including malformed numeric query parameters, return **HTTP 400** with field-specific validation details.
+- A valid search with no matches returns **HTTP 200**, an empty `items` array, `totalResults: 0`, and `totalPages: 0`.
+- Requesting a page beyond the last page returns **HTTP 200** with an empty `items` array and the actual totals.
 
-1. **Budget proximity** (only when `targetBudget` is provided): `budgetScore = max(0, 100 * (1 - abs(price - targetBudget) / targetBudget))`. A listing at the target budget scores 100. A listing at least 100% away from the target scores 0.
-2. **Recency**: `ageDays = max(0, UTC-today - listedDate)` and `recencyScore = max(0, 100 * (1 - ageDays / 90))`. This is a simple linear decay. Future-dated listings are treated as zero days old, and listings at least 90 days old score 0.
-3. **Combined score when budget is supplied**: `relevanceScore = 0.70 * budgetScore + 0.30 * recencyScore`.
-4. **No target budget**: rank by the full recency score, without applying the 30% weight.
+## How relevance is calculated
 
-Scores are computed using decimal arithmetic. The current UTC date comes from the injectable .NET `TimeProvider`, allowing deterministic scoring tests. Equal scores are ordered by `listedDate` descending, then `source` ascending, then `id` ascending using ordinal string comparison. This transparent weighted model is easy to explain and change; it intentionally does not infer other preferences or use distance, status, or description relevance as ranking signals.
+Every score is in the range **0–100**. The API uses the listing's price, its `listedDate`, the optional target budget, and today's UTC date.
 
-## Validation and pagination
+**When a target budget is provided:**
 
-`SearchRequestValidator` returns field-specific validation errors for negative price/bedroom filters, reversed price ranges, non-positive budgets, and invalid page/page-size values. ASP.NET model binding rejects malformed numeric values. The endpoint returns these errors as a validation-problem response with HTTP 400.
+1. Measure price difference as a percentage of the target budget: `budgetScore = max(0, 100 * (1 - abs(price - targetBudget) / targetBudget))`.
+2. Give listings a linear recency score over 90 days: `ageDays = max(0, UTC-today - listedDate)` and `recencyScore = max(0, 100 * (1 - ageDays / 90))`.
+3. Combine the two: `relevanceScore = 0.70 * budgetScore + 0.30 * recencyScore`.
 
-The approved defaults are page `1`, page size `10`, and maximum page size `100`. `totalPages` is `0` when there are no matches; requesting a page beyond the last page does not change the reported total metadata or cause an error.
+A listing at the target price receives a budget score of 100; one at least 100% above or below the target receives 0. A listing from today receives a recency score of 100; one at least 90 days old receives 0. Future dates are treated as today.
 
-## Automated tests
+**When no target budget is provided**, the listing's relevance score is its full recency score. The API does not reduce this score to the 30% weight.
 
-Run the backend unit and HTTP integration suite from the repository root:
+`TimeProvider` supplies the current UTC date and can be replaced with a fixed clock in tests. Results are sorted by relevance descending, then listing date descending, then source ascending, then ID ascending. String tie-breakers use ordinal comparison. This simple score intentionally does not rank by location, status, or keyword relevance.
+
+## Project map
+
+```text
+backend/
+  ListingSearch.sln
+  ListingSearch.Api/       ASP.NET Core API
+  ListingSearch.Tests/     xUnit unit and HTTP integration tests
+frontend/                  React, TypeScript, and Vite app
+requirements/
+  sample_listings.json     Original 12-record dataset
+```
+
+### Backend responsibilities
+
+| Class | File | Responsibility |
+|---|---|---|
+| `Listing` | `backend/ListingSearch.Api/Models/Listing.cs` | Represents one source listing and parses its ISO date for comparisons. |
+| `IListingRepository` | `backend/ListingSearch.Api/Repositories/IListingRepository.cs` | Defines read-only access to listings. |
+| `ListingRepository` | `backend/ListingSearch.Api/Repositories/ListingRepository.cs` | Loads and validates the JSON dataset. |
+| `SearchRequest` | `backend/ListingSearch.Api/DTOs/SearchRequest.cs` | Holds filters and pagination values from the query. |
+| `SearchResponse`, `ListingSearchResult` | `backend/ListingSearch.Api/DTOs/SearchResponse.cs` | Describe the scored result page and its metadata. |
+| `SearchRequestValidator` | `backend/ListingSearch.Api/Validation/SearchRequestValidator.cs` | Reports invalid search and pagination values. |
+| `RelevanceScoringService` | `backend/ListingSearch.Api/Services/RelevanceScoringService.cs` | Calculates budget-fit and recency scores. |
+| `ListingSearchService` | `backend/ListingSearch.Api/Services/ListingSearchService.cs` | Applies filters, scoring, stable sorting, and pagination. |
+| `ListingsController` | `backend/ListingSearch.Api/Controllers/ListingsController.cs` | Exposes `GET /api/listings/search` and HTTP responses. |
+
+### Frontend responsibilities
+
+| Component or service | File | Responsibility |
+|---|---|---|
+| `App` | `frontend/src/App.tsx` | Coordinates filter submission, API requests, and page state. |
+| `SearchFiltersForm` | `frontend/src/components/SearchFiltersForm.tsx` | Collects filter values and provides validation feedback. |
+| `ListingsResults` | `frontend/src/components/ListingsResults.tsx` | Displays loading, error, empty, or populated results. |
+| `ListingCard` | `frontend/src/components/ListingCard.tsx` | Displays a listing and formats its price and score. |
+| `PaginationControls` | `frontend/src/components/PaginationControls.tsx` | Displays totals and previous/next page controls. |
+| `listingApi` | `frontend/src/services/listingApi.ts` | Builds the API request and reports HTTP errors. |
+| `ListingTypes` | `frontend/src/types/ListingTypes.ts` | Defines shared listing, search, and response types. |
+
+Important backend methods include `ValidateSearchRequest`, `SearchListings`, `MatchesFilters`, `CalculateRelevanceScore`, `CalculateBudgetProximityScore`, and `CalculateRecencyScore`. Frontend helpers `submitSearch`, `handleSearch`, and `loadListings` validate form input, reset pagination when filters change, and ignore stale API responses.
+
+## Build and test
+
+From the repository root, build the API and run its unit and HTTP integration tests:
 
 ```powershell
 dotnet test backend\ListingSearch.sln
 ```
 
-The tests use a fixed UTC clock and cover JSON loading/deserialization, source IDs, each filter and combined filters, empty results, validation, score boundaries and weights, deterministic tie ordering, pagination, HTTP behavior, and malformed query values.
-
-Frontend type-check and production build:
+From the `frontend` directory, check TypeScript types and create a production build:
 
 ```powershell
-Set-Location frontend
 npm run typecheck
 npm run build
 ```
 
-## Code Structure and Responsibilities
+The tests cover filtering, combined filters, empty results, validation, budget/recency ranking, ties, stable pagination, JSON loading, and API behavior. They use a fixed UTC date so scoring expectations are repeatable.
 
-| Class or component | File location | Responsibility | Important methods |
-|---|---|---|---|
-| `Listing` | `backend/ListingSearch.Api/Models/Listing.cs` | Represents one original source record and parses its ISO date for comparisons. | `ListedOn` |
-| `IListingRepository` | `backend/ListingSearch.Api/Repositories/IListingRepository.cs` | Defines read-only access to the listing collection. | `GetAll` |
-| `ListingRepository` | `backend/ListingSearch.Api/Repositories/ListingRepository.cs` | Loads, validates, and retains the JSON records in memory. | Constructor, `GetAll` |
-| `SearchRequest` | `backend/ListingSearch.Api/DTOs/SearchRequest.cs` | Binds the supported query filters and paging values. | — |
-| `SearchResponse` | `backend/ListingSearch.Api/DTOs/SearchResponse.cs` | Carries the current page and result-count metadata. | — |
-| `ListingSearchResult` | `backend/ListingSearch.Api/DTOs/SearchResponse.cs` | Associates a source listing with its relevance score. | — |
-| `SearchRequestValidator` | `backend/ListingSearch.Api/Validation/SearchRequestValidator.cs` | Produces field-specific errors for invalid search input. | `ValidateSearchRequest` |
-| `RelevanceScoringService` | `backend/ListingSearch.Api/Services/RelevanceScoringService.cs` | Scores target-budget proximity and 90-day recency. | `CalculateRelevanceScore`, `CalculateBudgetProximityScore`, `CalculateRecencyScore` |
-| `ListingSearchService` | `backend/ListingSearch.Api/Services/ListingSearchService.cs` | Filters, scores, sorts, and paginates source records. | `SearchListings`, `MatchesFilters` |
-| `ListingsController` | `backend/ListingSearch.Api/Controllers/ListingsController.cs` | Exposes the HTTP search endpoint and validation responses. | `Search` |
-| `SearchFiltersForm` | `frontend/src/components/SearchFiltersForm.tsx` | Collects filter input, validates basic combinations, and resets criteria. | `updateFilter`, `submitSearch`, `resetFilters` |
-| `ListingsResults` | `frontend/src/components/ListingsResults.tsx` | Displays loading, error, empty, and populated result states. | `ListingsResults` |
-| `ListingCard` | `frontend/src/components/ListingCard.tsx` | Displays one listing and formats its price and score. | `ListingCard`, `formatPrice` |
-| `PaginationControls` | `frontend/src/components/PaginationControls.tsx` | Displays result totals and bounded previous/next controls. | `PaginationControls` |
-| `listingApi` | `frontend/src/services/listingApi.ts` | Builds the query URL and handles HTTP responses. | `searchListings` |
-| `App` | `frontend/src/App.tsx` | Coordinates filter submission, API requests, result state, and page changes. | `handleSearch`, `handleReset`, `loadListings` |
+## Design choices and limitations
 
-## Git workflow
+- Storage is an in-memory collection loaded from the provided static JSON file; there is no database.
+- City matching is exact except for letter case and surrounding whitespace. Keyword matching is a case-insensitive description substring.
+- Duplicate source records are retained. There is no deduplication, address normalization, fuzzy matching, full-text index, or status filter.
+- CORS is configured for local UI development origins; production deployment settings are outside this project.
+- The scorer and search service have separate responsibilities so ranking and search behavior can be extended and tested independently.
 
-Development is on `feature/listing-search-service`. Keep the approved assessment PDFs local; the root `.gitignore` excludes those exact files while tracking the supplied JSON. Run tests and review `git status` and `git diff` before committing. Do not merge into `main` or push to a remote without explicit approval.
-
-## Known limitations
-
-- The data source is the supplied static JSON file and is intentionally held in memory.
-- City matching is exact apart from case and surrounding whitespace; source inconsistencies are not otherwise normalized.
-- Description keywords use substring matching; there is no full-text index, fuzzy match, deduplication, or status filter.
-- The frontend uses only the local-development CORS origin; production deployment configuration is outside this assessment.
+The assessment PDFs are intentionally kept out of Git. The sample JSON and application source are tracked. Development is on `feature/listing-search-service`; do not merge into `main` or push without approval.
