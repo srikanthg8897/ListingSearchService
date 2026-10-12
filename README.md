@@ -72,7 +72,7 @@ npm install
 npm run dev
 ```
 
-Open `http://localhost:5173`. The development API allows CORS requests from that local origin. `.env.local` is ignored by Git.
+Open `http://localhost:8080`. Vite binds to port `8080` by default, and the API allows the local UI origins `http://localhost:8080` and `http://localhost:5173`. `.env.local` is ignored by Git.
 
 ## API
 

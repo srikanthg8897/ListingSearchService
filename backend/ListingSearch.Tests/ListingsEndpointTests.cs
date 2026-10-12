@@ -89,6 +89,25 @@ public sealed class ListingsEndpointTests
         Assert.Equal(3, body.TotalPages);
     }
 
+    [Theory]
+    [InlineData("http://localhost:5173")]
+    [InlineData("http://localhost:8080")]
+    public async Task Cors_WhenLocalFrontendRequestsApi_AllowsItsOrigin(string origin)
+    {
+        using var factory = new WebApplicationFactory<Program>();
+        using var client = factory.CreateClient();
+        using var request = new HttpRequestMessage(
+            HttpMethod.Options,
+            "/api/listings/search");
+        request.Headers.Add("Origin", origin);
+        request.Headers.Add("Access-Control-Request-Method", "GET");
+
+        var response = await client.SendAsync(request);
+
+        Assert.Equal(System.Net.HttpStatusCode.NoContent, response.StatusCode);
+        Assert.Equal(origin, response.Headers.GetValues("Access-Control-Allow-Origin").Single());
+    }
+
     private sealed record ValidationProblemDetails(
         Dictionary<string, string[]> Errors);
 }
